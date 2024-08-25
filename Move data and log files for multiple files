@@ -101,7 +101,7 @@ PRINT CHAR(13) + CHAR(10) + '-- Option 2: DBATOOLS PowerShell Command to execute
 
 -- Construct and print the single dbatools command
 SET @DbatoolsCommand = 
-    'Move-DbaDbFile -SqlInstance "' + @SERVERNAME + '" -Database "' + @DatabaseName + '" -FileType "' + @FileType + '" -FileDestination "' + @NewFilePath + '" -Verbose';
+    'Move-DbaDbFile -SqlInstance "' + @SERVERNAME + '" -Database "' + @DatabaseName + '" -FileType "' + @FileType + '" -FileDestination "' + @NewFilePath + '" ';
 
 PRINT @DbatoolsCommand;
 

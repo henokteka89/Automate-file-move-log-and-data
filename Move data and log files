@@ -1,35 +1,61 @@
-DECLARE @DatabaseName NVARCHAR(128) = 'YourDatabaseName'; -- Input your database name here
+DECLARE @DatabaseName NVARCHAR(128) = 'test'; -- Input your database name here
 DECLARE @FileType NVARCHAR(10) = 'data'; -- Specify 'data' or 'log'
-DECLARE @NewFilePath NVARCHAR(260) = 'E:\NewLocation\YourFile.mdf'; -- Input the new file path here
-
+DECLARE @NewFilePath NVARCHAR(260) = 'D:\Data'; -- Input the new file path without the file name here
+DECLARE @SERVERNAME NVARCHAR(260) = 'hen';
 DECLARE @LogicalName NVARCHAR(128);
 DECLARE @OldFilePath NVARCHAR(260);
 DECLARE @TSQLCommand NVARCHAR(MAX);
-DECLARE @PowerShellCommand NVARCHAR(MAX);
+DECLARE @DbatoolsCommand NVARCHAR(MAX);
+DECLARE @NewFullFilePath NVARCHAR(260)
 
--- Identify the logical file name and current file path
+SET NOCOUNT ON
+-- Identify the logical file name and current file path based on the file type (data or log)
 SELECT 
-    @LogicalName = name,
-    @OldFilePath = physical_name
+    @LogicalName = mf.name,
+    @OldFilePath = mf.physical_name
 FROM 
-    sys.master_files
+    sys.master_files mf
+JOIN 
+    sys.databases d ON mf.database_id = d.database_id
 WHERE 
-    database_id = DB_ID(@DatabaseName)
-    AND type_desc = UPPER(@FileType + '_FILE');
+    d.name = @DatabaseName
+    AND mf.type_desc = CASE 
+                        WHEN @FileType = 'data' THEN 'ROWS' 
+                        WHEN @FileType = 'log' THEN 'LOG' 
+                        ELSE NULL 
+                       END;
+
+-- Construct the full new file path by appending the original file name to the new file path
+SET @NewFullFilePath = @NewFilePath + '\' + REVERSE(LEFT(REVERSE(@OldFilePath), CHARINDEX('\', REVERSE(@OldFilePath)) - 1));
 
 -- Construct the T-SQL command
-SET @TSQLCommand = 'USE master;' + CHAR(13) + CHAR(10) +
+SET @TSQLCommand = 
+    'USE master;' + CHAR(13) + CHAR(10) +
     'ALTER DATABASE [' + @DatabaseName + '] SET OFFLINE WITH ROLLBACK IMMEDIATE;' + CHAR(13) + CHAR(10) +
-    'ALTER DATABASE [' + @DatabaseName + '] MODIFY FILE (NAME = N''' + @LogicalName + ''', FILENAME = N''' + @NewFilePath + ''');' + CHAR(13) + CHAR(10) +
-    '-- After moving the file, bring the database back online' + CHAR(13) + CHAR(10) +
-    'ALTER DATABASE [' + @DatabaseName + '] SET ONLINE;';
+    'ALTER DATABASE [' + @DatabaseName + '] MODIFY FILE (NAME = ''' + @LogicalName + ''', FILENAME = ''' + @NewFullFilePath + ''');' + CHAR(13) + CHAR(10) +
+    ' -- Move the files manually, then use the below command to bring the database back online
+	ALTER DATABASE [' + @DatabaseName + '] SET ONLINE;';
 
--- Construct the PowerShell command
-SET @PowerShellCommand = 'Move-Item -Path "' + @OldFilePath + '" -Destination "' + @NewFilePath + '";';
+-- Construct the dbatools command
+SET @DbatoolsCommand = 
+    '
+Set-DbatoolsConfig -FullName sql.connection.trustcert -Value $true 
+Move-DbaDbFile -SqlInstance "' + @SERVERNAME + '" -Database "' + @DatabaseName + '" -FileType "' + @FileType + '" -FileDestination "' + @NewFilePath + '" ';
 
--- Print the commands
-PRINT 'T-SQL Command to execute:';
+-- Print the T-SQL command
+PRINT '
+-- You have two option to accomplish the File move task. 
+-- Option one, TSQL: use the TSQL to do change file destination, then manually move the file and finally bring the database online back
+-- Option two, Powershell: it handles taking the database offline, move the data and bring the database back online. But the File in the source has to be deleted manually after accomplishing the task.
+-- Option two assumes you have installed dbatools module (dbatools.io)
+
+-- Option 1: T-SQL Command to execute:
+
+';
 PRINT @TSQLCommand;
 
-PRINT CHAR(13) + CHAR(10) + 'PowerShell Command to execute:';
-PRINT @PowerShellCommand;
+-- Print the dbatools PowerShell command for execution
+PRINT CHAR(13) + CHAR(10) + '-- Option 2: DBATOOLs PowerShell Command to execute:';
+PRINT @DbatoolsCommand;
+
+SET NOCOUNT OFF

@@ -1,0 +1,35 @@
+DECLARE @DatabaseName NVARCHAR(128) = 'YourDatabaseName'; -- Input your database name here
+DECLARE @FileType NVARCHAR(10) = 'data'; -- Specify 'data' or 'log'
+DECLARE @NewFilePath NVARCHAR(260) = 'E:\NewLocation\YourFile.mdf'; -- Input the new file path here
+
+DECLARE @LogicalName NVARCHAR(128);
+DECLARE @OldFilePath NVARCHAR(260);
+DECLARE @TSQLCommand NVARCHAR(MAX);
+DECLARE @PowerShellCommand NVARCHAR(MAX);
+
+-- Identify the logical file name and current file path
+SELECT 
+    @LogicalName = name,
+    @OldFilePath = physical_name
+FROM 
+    sys.master_files
+WHERE 
+    database_id = DB_ID(@DatabaseName)
+    AND type_desc = UPPER(@FileType + '_FILE');
+
+-- Construct the T-SQL command
+SET @TSQLCommand = 'USE master;' + CHAR(13) + CHAR(10) +
+    'ALTER DATABASE [' + @DatabaseName + '] SET OFFLINE WITH ROLLBACK IMMEDIATE;' + CHAR(13) + CHAR(10) +
+    'ALTER DATABASE [' + @DatabaseName + '] MODIFY FILE (NAME = N''' + @LogicalName + ''', FILENAME = N''' + @NewFilePath + ''');' + CHAR(13) + CHAR(10) +
+    '-- After moving the file, bring the database back online' + CHAR(13) + CHAR(10) +
+    'ALTER DATABASE [' + @DatabaseName + '] SET ONLINE;';
+
+-- Construct the PowerShell command
+SET @PowerShellCommand = 'Move-Item -Path "' + @OldFilePath + '" -Destination "' + @NewFilePath + '";';
+
+-- Print the commands
+PRINT 'T-SQL Command to execute:';
+PRINT @TSQLCommand;
+
+PRINT CHAR(13) + CHAR(10) + 'PowerShell Command to execute:';
+PRINT @PowerShellCommand;

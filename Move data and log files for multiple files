@@ -1,0 +1,94 @@
+DECLARE @DatabaseName NVARCHAR(128) = 'test'; -- Input your database name here
+DECLARE @FileType NVARCHAR(10) = 'log'; -- Specify 'data' or 'log'
+DECLARE @NewFilePath NVARCHAR(260) = 'D:\log'; -- Input the new file path without the file name here
+DECLARE @SERVERNAME NVARCHAR(260) = 'hen';
+DECLARE @LogicalName NVARCHAR(128);
+DECLARE @OldFilePath NVARCHAR(260);
+DECLARE @TSQLCommand NVARCHAR(MAX);
+DECLARE @DbatoolsCommand NVARCHAR(MAX);
+DECLARE @NewFullFilePath NVARCHAR(260);
+DECLARE @FileCount INT;
+
+SET NOCOUNT ON;
+
+-- Create a table to store the results for each file
+DECLARE @Files TABLE (
+    LogicalName NVARCHAR(128),
+    OldFilePath NVARCHAR(260),
+    NewFullFilePath NVARCHAR(260)
+);
+
+-- Populate the table with the logical file names and paths for the specified file type
+INSERT INTO @Files (LogicalName, OldFilePath)
+SELECT 
+    mf.name,
+    mf.physical_name
+FROM 
+    sys.master_files mf
+JOIN 
+    sys.databases d ON mf.database_id = d.database_id
+WHERE 
+    d.name = @DatabaseName
+    AND mf.type_desc = CASE 
+                        WHEN @FileType = 'data' THEN 'ROWS' 
+                        WHEN @FileType = 'log' THEN 'LOG' 
+                        ELSE NULL 
+                       END;
+
+-- Update the table with the new file paths
+UPDATE @Files
+SET NewFullFilePath = @NewFilePath + '\' + REVERSE(LEFT(REVERSE(OldFilePath), CHARINDEX('\', REVERSE(OldFilePath)) - 1));
+
+-- Count the number of files
+SET @FileCount = (SELECT COUNT(*) FROM @Files);
+
+-- Print instructions and handle multiple files
+PRINT '
+-- You have two options to accomplish the File move task. 
+-- Option one, TSQL: use the T-SQL to change the file destination, then manually move the files and finally bring the database back online.
+-- Option two, PowerShell: it handles taking the database offline, moving the data files, and bringing the database back online. But the files in the source have to be deleted manually after accomplishing the task.
+-- Option two assumes you have installed the dbatools module (dbatools.io)
+
+-- Option 1: T-SQL Commands to execute:
+
+';
+
+-- Loop through each file and generate the T-SQL commands
+DECLARE @Counter INT = 1;
+WHILE @Counter <= @FileCount
+BEGIN
+    -- Get the file details
+    SELECT 
+        @LogicalName = LogicalName,
+        @OldFilePath = OldFilePath,
+        @NewFullFilePath = NewFullFilePath
+    FROM 
+        (SELECT *, ROW_NUMBER() OVER (ORDER BY LogicalName) AS RowNum FROM @Files) AS FileList
+    WHERE 
+        RowNum = @Counter;
+    
+    -- Construct the T-SQL command for each file
+    SET @TSQLCommand = 
+        'USE master;' + CHAR(13) + CHAR(10) +
+        'ALTER DATABASE [' + @DatabaseName + '] SET OFFLINE WITH ROLLBACK IMMEDIATE;' + CHAR(13) + CHAR(10) +
+        'ALTER DATABASE [' + @DatabaseName + '] MODIFY FILE (NAME = ''' + @LogicalName + ''', FILENAME = ''' + @NewFullFilePath + ''');' + CHAR(13) + CHAR(10) +
+        '-- Move the files manually, then use the below command to bring the database back online
+        ALTER DATABASE [' + @DatabaseName + '] SET ONLINE;' + CHAR(13) + CHAR(10);
+    
+    -- Print the T-SQL command
+    PRINT @TSQLCommand;
+
+    -- Increment the counter
+    SET @Counter = @Counter + 1;
+END;
+
+-- Print the dbatools PowerShell command for all files (only once)
+PRINT CHAR(13) + CHAR(10) + '-- Option 2: DBATOOLS PowerShell Command to execute:';
+
+-- Construct and print the single dbatools command
+SET @DbatoolsCommand = 
+    'Move-DbaDbFile -SqlInstance "' + @SERVERNAME + '" -Database "' + @DatabaseName + '" -FileType "' + @FileType + '" -FileDestination "' + @NewFilePath + '" -Verbose';
+
+PRINT @DbatoolsCommand;
+
+SET NOCOUNT OFF;

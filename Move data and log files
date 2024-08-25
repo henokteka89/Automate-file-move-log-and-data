@@ -1,3 +1,5 @@
+-- This is for single data file (one log and one data file). For multiple data or log files check the other File. 
+
 DECLARE @DatabaseName NVARCHAR(128) = 'test'; -- Input your database name here
 DECLARE @FileType NVARCHAR(10) = 'data'; -- Specify 'data' or 'log'
 DECLARE @NewFilePath NVARCHAR(260) = 'D:\Data'; -- Input the new file path without the file name here
